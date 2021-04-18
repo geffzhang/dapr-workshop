@@ -1,4 +1,4 @@
-# Dapr hands-on
+# Dapr workshop
 
 This repository contains several hands-on assignments that will introduce you to Dapr. You will start with a simple ASP.NET Core application that contains a number of services. In each assignment, you will change a part of the application so it works with Dapr (or "rub some Dapr on it" as Donovan Brown would say). The Dapr building blocks you will be working with are:
 
@@ -80,7 +80,7 @@ Make sure you have the following prerequisites installed on your machine:
   - [C#](https://marketplace.visualstudio.com/items?itemName=ms-dotnettools.csharp)
   - [REST Client](https://marketplace.visualstudio.com/items?itemName=humao.rest-client)
 - Docker for desktop ([download](https://www.docker.com/products/docker-desktop))
-- Dapr CLI and Dapr runtime ([instructions](https://docs.dapr.io/getting-started/install-dapr-selfhost/))
+- [Install the Dapr CLI](https://docs.dapr.io/getting-started/install-dapr-cli/) and [initialize Dapr locally](https://docs.dapr.io/getting-started/install-dapr-selfhost/)
 
 All scripts in the instructions are Powershell scripts. If you're working on a Mac, it is recommended to install Powershell for Mac:
 
@@ -92,9 +92,9 @@ The workshop has been tested with the following versions:
 
 | Attribute            | Details |
 | -------------------- | ------- |
-| Dapr runtime version | v1.0.0  |
-| Dapr.NET SDK version | v1.0.0  |
-| Dapr CLI version     | v1.0.0  |
+| Dapr runtime version | v1.1.1  |
+| Dapr.NET SDK version | v1.1.0  |
+| Dapr CLI version     | v1.1.0  |
 | Platform             | .NET 5  |
 
 ### Instructions

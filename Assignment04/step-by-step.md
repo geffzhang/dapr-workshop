@@ -89,7 +89,7 @@ Now you will add code to the TrafficControlService so it uses the Dapr state man
     }
     ```
 
-1. Add a private field named `_httpClient` that holds an instance of a `HttpClient` and a constructor that accepts a `HttpClient` instance as argument and initializes this field:
+1. Add a private field to the class named `_httpClient` that holds an instance of a `HttpClient` and a constructor that accepts a `HttpClient` instance as argument and initializes this field:
 
     ```csharp
     private readonly HttpClient _httpClient;
@@ -187,7 +187,7 @@ Now you need to make sure your new repository is registered with dependency-inje
    services.AddSingleton<IVehicleStateRepository, DaprVehicleStateRepository>();
    ```
 
-1. Open the terminal window in VS Code and make sure the current folder is `src/FineCollectionService`.
+1. Open the terminal window in VS Code and make sure the current folder is `src/TrafficControlService`.
 
 1. Check all your code-changes are correct by building the code. Execute the following command in the terminal window:
 
@@ -279,7 +279,11 @@ In this step you're going to change the `DaprVehicleStateRepository` and replace
 
 1. Open the file `src/TrafficControlService/Repositories/DaprVehicleStateRepository.cs` in VS Code.
 
-1. Add a using statement for `Dapr.Client`.
+1. Add a using statement for the Dapr client:
+
+   ```csharp
+   using Dapr.Client;
+   ```
 
 1. Change all occurrences of the `HttpClient` with `DaprClient` and rename the private field `_httpClient` to `_daprClient`.
 

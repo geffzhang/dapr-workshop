@@ -16,13 +16,13 @@ In this assignment, you'll run the application to make sure everything works cor
 
 4. Start the service using `dotnet run`.
 
-> If you receive an error here, please double-check whether or not you have installed all the [prerequisites](..\README.md#Prerequisites) for the workshop!
+> If you receive an error here, please double-check whether or not you have installed all the [prerequisites](../README.md#Prerequisites) for the workshop!
 
 Now you can test whether you can call the VehicleRegistrationService. You can do this using a browser, CURL or some other HTTP client. But there is a convenient way of testing RESTful APIs directly from VS Code (this uses the REST Client extension VS Code):
 
 1. Open the file `src/VehicleRegistrationService/test.http` in VS Code. The request in this file simulates retrieving the vehicle- and owner information for a certain license-number.
 
-1. Click on `Execute request` in the file to send a request to the API:
+1. Click on `Send request` in the file to send a request to the API:
 
    ![REST client](img/rest-client.png)
 
@@ -97,9 +97,9 @@ Now you can test whether you can call the VehicleRegistrationService. You can do
 
    You should see the speeding-violation being handled by the FineCollectionService:
 
-   ![FineCollectionService logging](img/logging-finecollectionservice2.png)
+   ![FineCollectionService logging](img/logging-finecollectionservice.png)
 
-## Step 3. Run the simulation
+## Step 4. Run the simulation
 
 You've tested the APIs directly by using a REST client. Now you're going to run the simulation that actually simulates cars driving on the highway. The simulation will simulate 3 entry- and exit-cameras (one for each lane).
 
