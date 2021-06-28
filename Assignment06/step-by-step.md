@@ -101,11 +101,13 @@ In this step you will add a Dapr binding component configuration file to the cus
        value: mqtt://localhost:1883
      - name: topic
        value: trafficcontrol/entrycam
+     - name: consumerID
+       value: "{uuid}"
    scopes:
      - trafficcontrolservice
    ```
 
-   As you can see, you specify the binding type MQTT (`bindings.mqtt`) and you specify in the `metadata` how to connect to the Mosquitto server container you started in step 2 (running on localhost on port `1883`). Also the topic to use is configured in metadata: `trafficcontrol/entrycam`. In the `scopes` section, you specify that only the TrafficControlService should subscribe to the MQTT topic.
+   As you can see, you specify the binding type MQTT (`bindings.mqtt`) and you specify in the `metadata` how to connect to the Mosquitto server container you started in step 2 (running on localhost on port `1883`). Also the topic to use is configured in metadata: `trafficcontrol/entrycam`. When a MQTT topic is subscribed on by multiple consumers, each consumer must specify a unique consumer Id. You can specify this with the `consumerId` field in the `metadata`. Dapr automatically replaces the value `"{uuid}"` with a unique Id. In the `scopes` section, you specify that only the TrafficControlService should subscribe to the MQTT topic.
 
 Important to note with bindings is the `name` of the binding. This name must be the same as the name of the web API URL you want to be called on your service. In your case this is `/entrycam`.
 
@@ -131,8 +133,10 @@ Now you need to also add an input binding for the `/exitcam` operation:
        value: mqtt://localhost:1883
      - name: topic
        value: trafficcontrol/exitcam
+     - name: consumerID
+       value: "{uuid}"
    scopes:
-     - trafficcontrolservice    
+     - trafficcontrolservice
    ```
 
 Now your input bindings are configured and it's time to change the Camera Simulation so it will send MQTT messages to Mosquitto.
@@ -168,6 +172,7 @@ The proxy uses HTTP to send the message to the TrafficControlService. You will r
    using System.Net.Mqtt;
    using System.Text;
    using System.Text.Json;
+   using System.Threading.Tasks;
    using Simulation.Events;
    
    namespace Simulation.Proxies
@@ -185,18 +190,18 @@ The proxy uses HTTP to send the message to the TrafficControlService. You will r
                    new MqttClientCredentials(clientId: $"camerasim{camNumber}")).Result;
            }
    
-           public void SendVehicleEntry(VehicleRegistered vehicleRegistered)
+           public async Task SendVehicleEntryAsync(VehicleRegistered vehicleRegistered)
            {
                var eventJson = JsonSerializer.Serialize(vehicleRegistered);
                var message = new MqttApplicationMessage("trafficcontrol/entrycam", Encoding.UTF8.GetBytes(eventJson));
-               _client.PublishAsync(message, MqttQualityOfService.AtMostOnce).Wait();
+               await _client.PublishAsync(message, MqttQualityOfService.AtMostOnce).Wait();
            }
    
-           public void SendVehicleExit(VehicleRegistered vehicleRegistered)
+           public async Task SendVehicleExitAsync(VehicleRegistered vehicleRegistered)
            {
                var eventJson = JsonSerializer.Serialize(vehicleRegistered);
                var message = new MqttApplicationMessage("trafficcontrol/exitcam", Encoding.UTF8.GetBytes(eventJson));
-               _client.PublishAsync(message, MqttQualityOfService.AtMostOnce).Wait();
+               await _client.PublishAsync(message, MqttQualityOfService.AtMostOnce).Wait();
            }
        }
    }

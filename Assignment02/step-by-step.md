@@ -11,7 +11,7 @@ This assignment targets number **1** in the end-state setup:
 
 <img src="../img/dapr-setup.png" style="zoom: 67%;" />
 
-### Step 1: Start the VehicleRegistrationService with Dapr
+## Step 1: Start the VehicleRegistrationService with Dapr
 
 In assignment 1, you started all the services using `dotnet run`. When you want to run a service with a Dapr sidecar that handles its communication, you need to start it using the Dapr CLI. There are a couple of things you need to specify when starting the service:
 
@@ -74,7 +74,7 @@ First you're going to change the code so it calls the Dapr sidecar:
    http://localhost:<daprPort>/v1.0/invoke/<appId>/method/<method-name>
    ```
 
-   You can substitute the placeholders in this URL with values for the FineCollectionService, this yields the following URL:
+   You can substitute the placeholders in this URL with the appropriate values so the FineCollectionService's sidecar can call the the VehicleRegistrationService, this yields the following URL:
 
    ```http
    http://localhost:3601/v1.0/invoke/vehicleregistrationservice/method/vehicleinfo/{licenseNumber}
@@ -92,7 +92,7 @@ First you're going to change the code so it calls the Dapr sidecar:
    }
    ```
 
-   > It's important to really grasp the sidecar pattern used by Dapr. In this case, the FineCollectionService calls the VehicleRegistrationService by **calling its own dapr sidecar**! The FineCollectionService doesn't need to know anymore where the VehicleRegistrationService lives because its Dapr sidecar will take care of that. It will find it based on the `app-id` specified in the URL and call the target service's sidecar.
+   > It's important to really grasp the sidecar pattern used by Dapr. In this case, the FineCollectionService calls the VehicleRegistrationService by **calling its own Dapr sidecar**! The FineCollectionService doesn't need to know anymore where the VehicleRegistrationService lives because its Dapr sidecar will take care of that. It will find it based on the `app-id` specified in the URL and call the target service's sidecar.
 
 1. Open a **new** terminal window in VS Code and make sure the current folder is `src/FineCollectionService`.
 
@@ -153,7 +153,7 @@ First stop the simulation:
 1. Add a reference to the Dapr ASP.NET Core integration library:
 
    ```console
-   dotnet add package Dapr.AspNetCore
+   dotnet add package Dapr.AspNetCore -v 1.2.0
    ```
 
    > The `Dapr.AspNetCore` package contains the `DaprClient` class used to directly invoke the Dapr API as well as additional integrations with ASP.NET Core. Because the services are all ASP.NET Core web APIs, we'll use this package throughout the workshop.
