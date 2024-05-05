@@ -25,7 +25,7 @@ In the example, you will use RabbitMQ as the message broker with the Dapr pub/su
 1. Start a RabbitMQ message broker by entering the following command:
 
    ```console
-   docker run -d -p 5672:5672 -p 15672:15672 --name dtc-rabbitmq rabbitmq:3-management-alpine
+   docker run -d -p 5672:5672 --name dtc-rabbitmq rabbitmq:3-management-alpine
    ```
 
 This will pull the docker image `rabbitmq:3-management-alpine` from Docker Hub and start it. The name of the container will be `dtc-rabbitmq`. The server will be listening for connections on port `5672` (which is the default port for RabbitMQ).
@@ -73,9 +73,9 @@ docker rm dtc-rabbitmq -f
 
 Once you have removed it, you need to start it again with the `docker run` command shown at the beginning of this step.
 
-> For your convenience, the `Infrastructure` folder contains Powershell scripts for starting the infrastructural components you'll use throughout the workshop. You can use the `Infrastructure/rabbitmq/start-rabbitmq.ps1` script to start the RabbitMQ container.
+> For your convenience, the `Infrastructure` folder contains Bash scripts for starting the infrastructural components you'll use throughout the workshop. You can use the `Infrastructure/rabbitmq/start-rabbitmq.sh` script to start the RabbitMQ container.
 >
-> If you don't mind starting all the infrastructural containers at once (also for assignments to come), you can also use the `Infrastructure/start-all.ps1` script.
+> If you don't mind starting all the infrastructural containers at once (also for assignments to come), you can also use the `Infrastructure/start-all.sh` script.
 
 ## Step 2: Configure the pub/sub component
 
@@ -125,27 +125,31 @@ As you can see, you specify a different type of pub/sub component (`pubsub.rabbi
 
 With the Dapr pub/sub building block, you use a *topic* to send and receive messages. The producer sends messages to the topic and one or more consumers subscribe to this topic to receive those messages. First you are going to prepare the TrafficControlService so it can send messages using Dapr pub/sub.
 
-1. Open the file `TrafficControlService/Controllers/TrafficController.cs` in VS Code.
+1. Open the file `TrafficControlService/src/main/java/dapr/traffic/fines/DefaultFineCollectionClient.java` in VS Code.
 
-1. Near the end of the `VehicleExit` method, you find the code that sends a `SpeedingViolation` message to the `collectfine` endpoint of the FineCollectionService over HTTP:
+1. Inside the `submitForFine` method, you find the code that sends a `SpeedingViolation` message to the `collectfine` endpoint of the FineCollectionService over HTTP:
 
-   ```csharp
-   // publish speedingviolation
-   var message = JsonContent.Create<SpeedingViolation>(speedingViolation);
-   await _httpClient.PostAsync("http://localhost:6001/collectfine", message);
+   ```java
+   restTemplate.postForObject(fineCollectionEndpoint, speedingViolation, Void.class);
    ```
+
+   The `restTemplate` is a utility provided by Spring to invoke the FineCollectionService. Its base address for consuming that REST web service is injected through the constructor of that class. That constructor is invoked from a Spring configuration class, which in turn reads the Spring configuration file using `@Value`.
+
+1. Open the file `TrafficControlService/src/main/resources/application.yml` in VS Code.
+
+   Here we see the actual value being configured. Inspect the `fine-collection.address` setting. You can see that in the HTTP call, the URL of the VehicleRegistrationService (running on port 6001) is used.
 
 1. The URL for publishing a message using the Dapr pub/sub API is: `http://localhost:<daprPort>/v1.0/publish/<pubsub-name>/<topic>`. You'll use this API to send a message to the `speedingviolations` topic using the pub/sub component named `pubsub`. The Dapr sidecar for the TrafficControlService runs on HTTP port `3600`. Replace the URL in the HTTP call with a call to the Dapr pub/sub API:
 
-   ```csharp
-   await _httpClient.PostAsync("http://localhost:3600/v1.0/publish/pubsub/speedingviolations", message);
+   ```yml
+   fine-collection.address: http://localhost:3600/v1.0/publish/pubsub/speedingviolations
    ```
 
 That's it. You now use Dapr pub/sub to publish a message to a message broker.
 
 ## Step 4: Receive messages in the FineCollectionService (declaratively)
 
-Now you are going to prepare the FineCollectionService so it can receive messages using Dapr pub/sub. Consuming messages can be done in two ways: *declaratively* (through configuration) or *programmatic* (from the code). First you'll use the declarative way. Later you'll also use the programmatic way and finally also using the Dapr SDK for .NET.
+Now you are going to prepare the FineCollectionService so it can receive messages using Dapr pub/sub. Consuming messages can be done in two ways: *declaratively* (through configuration) or *programmatic* (from the code). First you'll use the declarative way. Later you'll also use the programmatic way and finally also using the Dapr SDK for Java.
 
 1. Add a new file in the `dapr/components` folder named `subscription.yaml`.
 
@@ -168,37 +172,40 @@ Now you are going to prepare the FineCollectionService so it can receive message
 
    The `route` field tells Dapr to forward all messages send to the `speedingviolations` topic to the `/collectfine` endpoint in the app. The `scopes` field restricts this subscription to only the service with app-id `finecollectionservice` only.
 
-Now your FineCollectionService is ready to receive messages through Dapr pub/sub. But there is a catch! Dapr uses the [CloudEvents](https://cloudevents.io/) message format for pub/sub. So when we send a message through pub/sub, the receiving application needs to understand this format and handle the message as a `CloudEvent`. Therefore we need to change the code slightly. For now, you will parse the incoming JSON by hand (instead of ASP.NET Core model binding doing that for you). You will change this later when you will use the Dapr SDK for .NET.
+Now your FineCollectionService is ready to receive messages through Dapr pub/sub. But there is a catch! Dapr uses the [CloudEvents](https://cloudevents.io/) message format for pub/sub. So when we send a message through pub/sub, the receiving application needs to understand this format and handle the message as a `CloudEvent`. Therefore we need to change the code slightly. For now, you will read the incoming JSON by hand (instead of the Jackson model binding doing that for you). You will change this later when you will use the Dapr SDK for Java.
 
-1. Open the file `FineCollectionService/Controllers/CollectionController.cs` in VS Code.
+1. Open the file `FineCollectionService/src/main/java/dapr/fines/violation/ViolationController.java` in VS Code.
 
-1. Remove the `SpeedingViolation` parameter from the `CollectFine` method and replace this with a `cloudevent` parameter of type `System.Text.Json.JsonDocument` that is decorated with the `[FromBody]` attribute:
+1. Remove the `SpeedingViolation request` parameter from the `registerViolation` method and replace this with a `event` parameter of type `JsonNode`, and leave the `@RequestBody` annotation in place:
 
-   ```csharp
-   public async Task<ActionResult> CollectFine([FromBody] System.Text.Json.JsonDocument cloudevent)
+   ```java
+   public ResponseEntity<Void> registerViolation(@RequestBody final JsonNode event) {
    ```
+
+   Add an import for the `com.fasterxml.jackson.databind.JsonNode` class.
 
    > This enables you to get to the raw JSON in the request.
 
-1. Add the following code at the top of the method to extract the `SpeedingViolation` data from the cloud event:
+1. Add the following code in the body of the method to extract the `SpeedingViolation` data from the event, just before the call to `violationProcessor.processSpeedingViolation`:
 
-   ```csharp
-   var data = cloudevent.RootElement.GetProperty("data");
-   var speedingViolation = new SpeedingViolation
-   {
-       VehicleId = data.GetProperty("vehicleId").GetString()!,
-       RoadId = data.GetProperty("roadId").GetString()!,
-       Timestamp = data.GetProperty("timestamp").GetDateTime()!,
-       ViolationInKmh = data.GetProperty("violationInKmh").GetInt32()
-   };
+   ```java
+   var data = event.get("data");
+   var violation = new SpeedingViolation(
+           data.get("licenseNumber").asText(),
+           data.get("roadId").asText(),
+           data.get("excessSpeed").asInt(),
+           LocalDateTime.parse(data.get("timestamp").asText())
+   );
    ```
+
+   Also, add an import for the `java.time.LocalDateTime` class.
 
 1. Open the terminal window in VS Code and make sure the current folder is `FineCollectionService`.
 
 1. Check all your code-changes are correct by building the code. Execute the following command in the terminal window:
 
    ```console
-   dotnet build
+   mvn package
    ```
 
    If you see any warnings or errors, review the previous steps to make sure the code is correct.
@@ -214,7 +221,7 @@ You're going to start all the services now. You specify the custom components fo
 1. Enter the following command to run the VehicleRegistrationService with a Dapr sidecar:
 
    ```console
-   dapr run --app-id vehicleregistrationservice --app-port 6002 --dapr-http-port 3602 --dapr-grpc-port 60002 --components-path ../dapr/components dotnet run
+   dapr run --app-id vehicleregistrationservice --app-port 6002 --dapr-http-port 3602 --dapr-grpc-port 60002 --components-path ../dapr/components mvn spring-boot:run
    ```
 
    > Notice that you specify the custom components folder you've created on the command-line using the `--components-path` flag so Dapr will use RabbitMQ for pub/sub.
@@ -224,7 +231,7 @@ You're going to start all the services now. You specify the custom components fo
 1. Enter the following command to run the FineCollectionService with a Dapr sidecar:
 
    ```console
-   dapr run --app-id finecollectionservice --app-port 6001 --dapr-http-port 3601 --dapr-grpc-port 60001 --components-path ../dapr/components dotnet run
+   dapr run --app-id finecollectionservice --app-port 6001 --dapr-http-port 3601 --dapr-grpc-port 60001 --components-path ../dapr/components mvn spring-boot:run
    ```
 
 1. Open a **new** terminal window in VS Code and change the current folder to `TrafficControlService`.
@@ -232,7 +239,7 @@ You're going to start all the services now. You specify the custom components fo
 1. Enter the following command to run the TrafficControlService with a Dapr sidecar:
 
    ```console
-   dapr run --app-id trafficcontrolservice --app-port 6000 --dapr-http-port 3600 --dapr-grpc-port 60000 --components-path ../dapr/components dotnet run
+   dapr run --app-id trafficcontrolservice --app-port 6000 --dapr-http-port 3600 --dapr-grpc-port 60000 --components-path ../dapr/components mvn spring-boot:run
    ```
 
 1. Open a **new** terminal window in VS Code and change the current folder to `Simulation`.
@@ -240,13 +247,13 @@ You're going to start all the services now. You specify the custom components fo
 1. Start the simulation:
 
    ```console
-   dotnet run
+   mvn spring-boot:run
    ```
 
 You should see the same logs as before. Obviously, the behavior of the application is exactly the same as before. But if you look closely at the Dapr logs of the FineCollectionService, you should see something like this in there:
 
 ```console
-time="2021-02-27T16:46:02.5989612+01:00" level=info msg="app is subscribed to the following topics: [speedingviolations] through pubsub=pubsub" app_id=finecollectionservice instance=EDWINW01 scope=dapr.runtime type=log ver=1.0.0
+INFO[0004] app is subscribed to the following topics: [speedingviolations] through pubsub=pubsub  app_id=finecollectionservice instance=maartenm03 scope=dapr.runtime type=log ver=1.2.2
 ```
 
 So you can see that Dapr has registered a subscription for the FineCollectionService to the `speedingviolations` topic.
@@ -257,25 +264,29 @@ The other way of subscribing to pub/sub events is the programmatic way. Dapr wil
 
 1. Stop the FineCollectionService by navigating to its terminal window and pressing `Ctrl-C`. You can keep the other services running for now.
 
-1. Open the file `FineCollectionService/Controllers/CollectionController.cs` in VS Code.
+1. Open the file `FineCollectionService/src/main/java/dapr/fines/violation/ViolationController.java` in VS Code.
 
-1. Add a new operation named `Subscribe` to the controller that will listen to the route `/dapr/subscribe`:
+1. Add a new method `subscribe` to the controller that will listen to the route `/dapr/dubscribe`:
 
-   ```csharp
-   [Route("/dapr/subscribe")]
-   [HttpGet()]
-   public object Subscribe()
-   {
-       return new object[]
-       {
-           new
-           {
-               pubsubname = "pubsub",
-               topic = "speedingviolations",
-               route = "/collectfine"
-           }
-       };
+   ```java
+   @GetMapping("/dapr/subscribe")
+   public ResponseEntity<List<Map<String, Object>>> subscribe() {
+       var subscription = Map.<String, Object>of(
+           "pubsubname", "pubsub",
+           "topic", "speedingviolations",
+           "route", "/collectfine"
+       );
+       return ResponseEntity.ok(Collections.singletonList(subscription));
    }
+   ```
+
+   Add the following imports to the class:
+
+   ```java
+   import org.springframework.web.bind.annotation.GetMapping;
+   import java.util.Collections;
+   import java.util.List;
+   import java.util.Map;
    ```
 
 1. Remove the file `dapr/components/subscription.yaml`. This file is not needed anymore because you implemented the `/dapr/subscribe` method.
@@ -285,7 +296,7 @@ The other way of subscribing to pub/sub events is the programmatic way. Dapr wil
 1. Check all your code-changes are correct by building the code. Execute the following command in the terminal window:
 
    ```console
-   dotnet build
+   mvn package
    ```
 
    If you see any warnings or errors, review the previous steps to make sure the code is correct.
@@ -293,151 +304,160 @@ The other way of subscribing to pub/sub events is the programmatic way. Dapr wil
 1. Start the updated FineCollectionService:
 
    ```console
-   dapr run --app-id finecollectionservice --app-port 6001 --dapr-http-port 3601 --dapr-grpc-port 60001 --components-path ../dapr/components dotnet run
+   dapr run --app-id finecollectionservice --app-port 6001 --dapr-http-port 3601 --dapr-grpc-port 60001 --components-path ../dapr/components mvn spring-boot:run
    ```
 
    > If you kept the other services running before you started with this step, you may observe that there a few speeding limitations waiting to be processed. The application will immediately start processing this backlog.
 
 1. After you've looked at the log output and confirmed that everything works, you can stop all the services.
 
-## Step 7: Use Dapr publish / subscribe with the Dapr SDK for .NET
+## Step 7: Use Dapr publish / subscribe with the Dapr SDK for Java
 
-In this step, you will change the code slightly so it uses the Dapr SDK for .NET. First you'll change the TrafficControlService that sends messages.
+In this step, you will change the code slightly so it uses the Dapr SDK for Java. First you'll change the TrafficControlService that sends messages.
 
-1. Open the terminal window in VS Code and make sure the current folder is `TrafficControlService`.
+1. Add a dependency to the Dapr SDK for Java to the pom.xml in the TrafficControlService directory:
 
-1. Add a reference to the Dapr ASP.NET Core integration package:
-
-   ```console
-   dotnet add package Dapr.AspNetCore
+   ```xml
+   <dependency>
+      <groupId>io.dapr</groupId>
+      <artifactId>dapr-sdk</artifactId>
+   </dependency>
    ```
 
-1. Open the file `TrafficControlService/GlobalUsings.cs` in VS Code.
+   Again, the version of the dependency is managed using Mavens "dependency management" - you can inspect the pom.xml file inside the java folder to see the exact version.
 
-1. In this file, add a global using statement for the Dapr client:
+1. Create a new file, **TrafficControlService/src/main/java/dapr/traffic/fines/DaprFineCollectionClient.java** and open it in VS Code. Make sure to include a package declaration: `package dapr.traffic.fines;`.
 
-   ```csharp
-   global using Dapr.Client;
+1. Declare a class `DaprFineCollectionClient` that implements the `FineCollectionClient` interface. To fulfil the contract of the `FineCollectionClient` interface, add the following method:
+
+  ```java
+  @Override
+  public void submitForFine(SpeedingViolation speedingViolation) {
+  }
+  ```
+
+  Also, add a few imports for the class:
+
+   ```java
+   import dapr.traffic.violation.SpeedingViolation;
+   import io.dapr.client.DaprClient;
+   import spring.SleuthDaprTracingInjector;
    ```
 
-1. Open the file `TrafficControlService/Controllers/TrafficController.cs` in VS Code.
+1. Finally, add an instance variable of type DaprClient, and add a constructor to inject it:
 
-1. Add an argument named `daprClient` of type `DaprClient` that is decorated with the `[FromServices]` attribute to the `VehicleExit` method :
-
-   ```csharp
-   public async Task<ActionResult> VehicleExit(VehicleRegistered msg, [FromServices] DaprClient daprClient)
+   ```java
+   private final DaprClient daprClient;
+ 
+   public DaprFineCollectionClient(final DaprClient daprClient) {
+      this.daprClient = daprClient;
+   }
    ```
 
-   > The `[FromServices]` attribute injects the `DaprClient` into the method using the ASP.NET Core dependency injection system.
+1. Open the file `TrafficControlService/src/main/java/dapr/traffic/TrafficControlConfiguration.java` in VS Code. The default JSON serialization is not suitable for todays goal, so you need to customize the Jackson `ObjectMapper` that it uses. You do so by adding a static inner class to configure the JSON serialization:
 
-1. Near the end of the method, you'll find the code that publishes the `SpeedingViolation` message using `_httpClient`:
+  ```java
+  static class JsonObjectSerializer extends DefaultObjectSerializer {
+      public JsonObjectSerializer() {
+          OBJECT_MAPPER.registerModule(new JavaTimeModule());
+          OBJECT_MAPPER.configure(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS, false);
+      }
+  }
+  ```
 
-   ```csharp
-   // publish speedingviolation
-   var message = JsonContent.Create<SpeedingViolation>(speedingViolation);
-   await _httpClient.PostAsync("http://localhost:3600/v1.0/publish/pubsub/speedingviolations", message);
-   ```
+  This is a bit of a lazy approach, but it is enough for this workshop. In fact, the SDK documentation [recommends to write your own serializer for production scenario's](https://github.com/dapr/java-sdk#how-to-use-a-custom-serializer).
 
-1. Replace this code with a call to the Dapr pub/sub building block using the DaprClient:
+1. In the same class, add a new method to declare a Spring Bean of type DaprClient:
 
-   ```csharp
-   // publish speedingviolation
-   await daprClient.PublishEventAsync("pubsub", "speedingviolations", speedingViolation);
-   ```
+  ```java
+  @Bean
+  public DaprClient daprClient() {
+      return new DaprClientBuilder()
+              .withObjectSerializer(new JsonObjectSerializer())
+              .build();
+  }
+  ```
 
-1. Open the file `TrafficControlService/Program.cs`.
+  In the same class, the `fineCollectionClient` method declares a Spring Bean that provides an implementation of the FineCollectionClient interface. To do so, it needs a RestTemplate bean. Replace this method with the following:
 
-1. The service now uses the `DaprClient`. Therefore, it needs to be registered with dependency injection. Insert the following code at line 3 into the file to register the `DaprClient` with dependency injection:
+  ```java
+  @Bean
+  public FineCollectionClient fineCollectionClient(final DaprClient daprClient) {
+      return new DaprFineCollectionClient(daprClient);
+  }
+  ```
 
-   ```csharp
-   builder.Services.AddDaprClient(builder => builder
-       .UseHttpEndpoint($"http://localhost:3600")
-       .UseGrpcEndpoint($"http://localhost:60000"));
-   ```
+  Finally, update the import statements in the class:
+
+  ```java
+  import com.fasterxml.jackson.databind.SerializationFeature;
+  import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+  import dapr.traffic.fines.DaprFineCollectionClient;
+  import io.dapr.client.DaprClient;
+  import io.dapr.client.DaprClientBuilder;
+  import io.dapr.serializer.DefaultObjectSerializer;
+  ```
+
+1. Finally, update the `submitForFine()` method in this class to use the `DaprClient`:
+
+  ```java
+  daprClient.publishEvent("pubsub",  "speedingviolations", speedingViolation)
+         .contextWrite(new SleuthDaprTracingInjector())
+         .block();
+  ```
 
 1. Open the terminal window in VS Code and make sure the current folder is `TrafficControlService`.
 
 1. Check all your code-changes are correct by building the code. Execute the following command in the terminal window:
 
    ```console
-   dotnet build
+   mvn package
    ```
 
    If you see any warnings or errors, review the previous steps to make sure the code is correct.
 
-Now you will change the FineCollectionService that receives messages. The Dapr ASP.NET Core integration library offers an elegant way of linking an ASP.NET Core WebAPI method to a pub/sub topic. For every message sent to that topic, the WebAPI method is invoked and the payload of the message is delivered as request body. You don't have to poll for messages on the message broker.
+Now you will change the FineCollectionService that receives messages. The Dapr SDK for Java provides an additional Spring Boot integration library, which automatically wires correctly annotated methods to a pub/sub topic. For every message sent to that topic, the corresponding Java method is invoked and the payload of the message is delivered as request body. You don't have to poll for messages on the message broker.
 
-1. Open the file `FineCollectionService/Controllers/CollectionController.cs` in VS Code.
+1. Add a dependency to the Dapr SDK for Java to the pom.xml in the FineCollectionService directory:
 
-1. Remove the `Subscribe` method from the controller.
-
-1. Replace the `cloudevent` parameter of the `CollectFine` method with a parameter of type `SpeedingViolation` named `speedingViolaton`:
-
-   ```csharp
-   public async Task<ActionResult> CollectFine(SpeedingViolation speedingViolation)
+   ```xml
+   <dependency>
+      <groupId>io.dapr</groupId>
+      <artifactId>dapr-sdk-springboot</artifactId>
+   </dependency>
    ```
 
-1. Remove the code that parses the cloud event data at the beginning of the method:
+1. Open the file `FineCollectionService/src/main/java/dapr/fines/violation/ViolationController.java`.
 
-   ```csharp
-   var data = cloudevent.RootElement.GetProperty("data");
-   var speedingViolation = new SpeedingViolation
-   {
-       VehicleId = data.GetProperty("vehicleId").GetString()!,
-       RoadId = data.GetProperty("roadId").GetString()!,
-       Timestamp = data.GetProperty("timestamp").GetDateTime()!,
-       ViolationInKmh = data.GetProperty("violationInKmh").GetInt32()
-   };
+1. Remove the `subscribe` method.
+
+1. Change the `registerViolation` method by making the type of the `event` parameter to `CloudEvent<SpeedingViolation>`; keep the `@RequestBody` annotation in place. Add an import for `io.dapr.client.domain.CloudEvent`. The method signature should now look like this:
+
+   ```java
+   public ResponseEntity<Void> registerViolation(@RequestBody final CloudEvent<SpeedingViolation> event) {
    ```
 
-1. Add a `Topic` attribute above the `CollectFine` method to link this method to a topic called `speedingviolations`:
+1. Change the implementation of the method to extract the actual violation info from the Cloud Event:
 
-   ```csharp
-   [Topic("pubsub", "speedingviolations")]
+   ```java
+   var violation = event.getData();
+   violationProcessor.processSpeedingViolation(violation);
    ```
 
-   > The *"pubsub"* argument passed to this attribute refers to the name of the Dapr pub/sub component to use.
+1. Add an import for the `io.dapr.Topic` class. Add a `@Topic` annotation above the `registerViolation` method to link this method to a topic called `speedingviolations`:
 
-1. Open the file `FineCollectionService/GlobalUsings.cs` in VS Code.
-
-1. In this file, add a global using statement for the Dapr library:
-
-   ```csharp
-   global using Dapr;
+   ```java
+   @Topic(name = "speedingviolations", pubsubName = "pubsub")
    ```
 
-Now you need to make sure that Dapr knows this controller and also knows which pub/sub topics the controller subscribes to. To determine this, Dapr will call your service on a default endpoint to retrieve the subscriptions. To make sure your service handles this request and returns the correct information, you need to add some statements to the `Startup` class:
-
-1. Open the file `FineCollectionService/Program.cs` in VS Code.
-
-1. Add `AddDapr` to the `AddControllers` line in this file:
-
-   ```csharp
-   builder.Services.AddControllers().AddDapr();
-   ```
-
-   > The `AddDapr` method adds Dapr integration for ASP.NET MVC.
-
-1. As you saw earlier, Dapr uses the cloud event message-format standard when sending messages over pub/sub. To make sure cloud events are automatically unwrapped, add the following line just after the call to `app.MapControllers()` in the file:
-
-   ```csharp
-   app.UseCloudEvents();
-   ```
-
-1. To register every controller that uses pub/sub as a subscriber, add a call to `app.MapSubscribeHandler()` just after the call to `app.UseCloudEvent()` in the file:
-
-   ```csharp
-   app.MapSubscribeHandler();
-   ```
-
-   > By adding this, the `/dapr/subscribe` endpoint that you implemented in step 6 is automatically implemented by Dapr. It will collect all the controller methods that are decorated with the Dapr `Topic` attribute and return the corresponding subscriptions.
+   > The *"pubsubName"* argument passed to this attribute refers to the name of the Dapr pub/sub component to use.
 
 1. Open the terminal window in VS Code and make sure the current folder is `FineCollectionService`.
 
 1. Check all your code-changes are correct by building the code. Execute the following command in the terminal window:
 
    ```console
-   dotnet build
+   mvn package
    ```
 
    If you see any warnings or errors, review the previous steps to make sure the code is correct.

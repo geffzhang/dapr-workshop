@@ -8,7 +8,7 @@ In a microservices application, it is important to be able to communicate with o
 
 <img src="img/service-invocation.png" style="zoom: 33%;" />
 
-In Dapr, every service is started with a unique Id (the *app-id*) which can be used the find it. Let's say Service A wants to call Service B.
+In Dapr, every service is started with a unique Id (the *app-id*) which can be used to find it. Let's say Service A wants to call Service B.
 
 1. Service A invokes the Dapr service invocation API (using HTTP or gRPC) on its Dapr sidecar and specifies the unique app-id of Service B.
 1. Dapr discovers Service B's location using its name-resolution component for the hosting environment the solution is running in.
@@ -35,11 +35,15 @@ This assignment targets number **1** in the end-state setup:
 
 ## DIY instructions
 
-Open the `src` folder in this repo in VS Code. Then open the [Dapr service invocation documentation](https://docs.dapr.io/developing-applications/building-blocks/service-invocation/) and start hacking away. If you need any hints, you may peek in the step-by-step part.
+Open the source code folder in VS Code. Then open the [Dapr service invocation documentation](https://docs.dapr.io/developing-applications/building-blocks/service-invocation/) and start hacking away. If you need any hints, you may peek in the step-by-step part.
 
 ## Step by step instructions
 
-To get step-by-step instructions to achieve the goals, open the [step-by-step instructions](step-by-step.md).
+To get step-by-step instructions to achieve the goals, open the step-by-step instructions:
+
+- [for .NET](step-by-step.md)
+- [for Java](step-by-step-java.md)
+- [for Python](step-by-step-python.md)
 
 ## Next assignment
 

@@ -16,11 +16,11 @@ This assignment targets number **5** in the end-state setup:
 
 You will add code to the TrafficControlService to use the Dapr input MQTT binding to receive entry- and exit-cam messages:
 
-1. Open the file `TrafficControlService/Controllers/TrafficController.cs` in VS Code.
+1. Open the file `TrafficControlService/src/main/java/dapr/traffic/TrafficController.java` in VS Code.
 
-1. Inspect the `VehicleEntry` and `VehicleExit` methods.
+1. Inspect the `vehicleEntry` and `vehicleExit` methods.
 
-And you're done! That's right, you don't need to change anything in order to use an input binding. The thing is that the binding will invoke exposed web API operations based on the name of the binding you specify in the component configuration in one of the next steps. As far as the TrafficControlService is concerned, it will just be called over HTTP and it has no knowledge of Dapr bindings.
+And you're done! That's right, you don't need to change anything in order to use an input binding. The thing is that the binding will invoke exposed API endpoints based on the name of the binding, which you will specify in the component configuration in one the next steps. As far as the TrafficControlService is concerned, it will just be called over HTTP and it has no knowledge of Dapr bindings.
 
 ## Step 2: Run the Mosquitto MQTT broker
 
@@ -46,10 +46,10 @@ In order to connect to Mosquitto, you need to pass in a custom configuration fil
 
    ```console
    REPOSITORY                          TAG      IMAGE ID      CREATED       SIZE
-   dapr-trafficcontrol/mosquitto:1.0   latest   3875762720a9  2 hours       9.95MB
+   dapr-trafficcontrol/mosquitto:1.0   latest   3879166620c2  2 hours       9.95MB
    ```
 
-1. Start a Mosquitto MQTT broker by entering the following command:
+1. Start the Mosquitto MQTT broker by entering the following command:
 
    ```console
    docker run -d -p 1883:1883 -p 9001:9001 --name dtc-mosquitto dapr-trafficcontrol/mosquitto:1.0
@@ -77,9 +77,9 @@ docker rm dtc-mosquitto -f
 
 Once you have removed it, you need to start it again with the `docker run` command shown at the beginning of this step.
 
-> For your convenience, the `Infrastructure` folder contains Powershell scripts for starting the infrastructural components you'll use throughout the workshop. You can use the `Infrastructure/mosquitto/start-mosquitto.ps1` script to start the Mosquitto container.
+> For your convenience, the `Infrastructure` folder contains Bash scripts for starting the infrastructural components you'll use throughout the workshop. You can use the `Infrastructure/mosquitto/start-mosquitto.sh` script to start the Mosquitto container.
 >
-> If you don't mind starting all the infrastructural containers at once, you can also use the `Infrastructure/start-all.ps1` script.
+> If you don't mind starting all the infrastructural containers at once, you can also use the `Infrastructure/start-all.sh` script.
 
 ## Step 3: Configure the input binding
 
@@ -113,7 +113,7 @@ In this step you will add a Dapr binding component configuration file to the cus
 
    As you can see, you specify the binding type MQTT (`bindings.mqtt`) and you specify in the `metadata` how to connect to the Mosquitto server container you started in step 2 (running on localhost on port `1883`). Also the topic to use is configured in metadata: `trafficcontrol/entrycam`. When a MQTT topic is subscribed on by multiple consumers, each consumer must specify a unique consumer Id. You can specify this with the `consumerId` field in the `metadata`. Dapr automatically replaces the value `"{uuid}"` with a unique Id. In the `scopes` section, you specify that only the TrafficControlService should subscribe to the MQTT topic.
 
-Important to note with bindings is the `name` of the binding. This name must be the same as the name of the web API URL you want to be called on your service. In your case this is `/entrycam`.
+Important to note with bindings is the `name` of the binding. This name must be the same as the URI of the API endpoint you want to be called on your service. In your case this is `/entrycam`.
 
 Now you need to also add an input binding for the `/exitcam` operation:
 
@@ -151,118 +151,128 @@ In this step you change the Camera Simulation so it sends MQTT messages instead 
 
 1. Open the terminal window in VS Code and make sure the current folder is `Simulation`.
 
-1. Add a reference to the `MQTTNet` library:
+1. Add a dependency to the Simulation by opening it's **pom.xml** add adding the following snippet inside the `<dependencies>` tag:
 
-   ```console
-   dotnet add package MQTTNet -v 3.1.2
-   ```
+    ```xml
+    <dependency>
+        <groupId>org.springframework.integration</groupId>
+        <artifactId>spring-integration-mqtt</artifactId>
+    </dependency>
+    ```
 
-1. Open the file `Simulation/CameraSimulation.cs` file in VS Code.
+   Notice how you do not have to specify the version for this dependency. The Spring Integration Bill of Materials declares a version that is compatible with the Spring version that we use.
+
+1. Open the file `Simulation/src/main/java/dapr/simulation/Simulation.java` file in VS Code.
 
 1. Inspect the code in this file.
 
-As you can see, the simulation gets an `ITrafficControlService` instance injected in its constructor. This is the proxy that is used by the simulation to send entry- and exit-cam messages to the TrafficControlService.
+As you can see, the simulation gets an `TrafficControlService` instance injected in its constructor. This is the proxy that is used by the simulation to send entry- and exit-cam messages to the TrafficControlService.
 
-1. Open the file `Simulation/Proxies/HttpTrafficControlService.cs` in VS Code and inspect the code.
+1. Open the file `Simulation/src/main/java/dapr/simulation/HttpTrafficControlService.java` in VS Code and inspect the code.
 
-The proxy uses HTTP to send the message to the TrafficControlService. You will replace this now with an implementation that uses MQTT:
+The proxy uses HTTP to send the message to the TrafficControlService. You will replace this now with an implementation that uses MQTT.
 
-1. Open the file `Simulation/GlobalUsings.cs` in VS Code.
+1. Add a new file in the `Simulation/src/main/java/dapr/simulation/` folder named `MqttTrafficControlService.java`. Paste the following code into this file:
 
-1. In this file, add the following global using statements:
+   ```java
+   package dapr.simulation;
 
-   ```csharp
-   global using MQTTnet;
-   global using MQTTnet.Client;
-   global using MQTTnet.Client.Options;
-   global using System.Text;
-   ```
+   import dapr.simulation.events.VehicleRegistered;
+   import org.springframework.integration.dsl.IntegrationFlow;
+   import org.springframework.messaging.support.GenericMessage;
 
-1. Add a new file in the `Simulation/Proxies` folder named `MqttTrafficControlService.cs`.
+   public class MqttTrafficControlService implements TrafficControlService {
+       private final IntegrationFlow entryCamera;
+       private final IntegrationFlow exitCamera;
 
-1. Paste the following code into this file:
-
-   ```csharp
-   namespace Simulation.Proxies;
-   
-   public class MqttTrafficControlService : ITrafficControlService
-   {
-       private IMqttClient _client;
-   
-       private MqttTrafficControlService(IMqttClient mqttClient)
-       {
-           _client = mqttClient;
+       public MqttTrafficControlService(final IntegrationFlow entryCamera, final IntegrationFlow exitCamera) {
+           this.entryCamera = entryCamera;
+           this.exitCamera = exitCamera;
        }
-   
-       public static async Task<MqttTrafficControlService> CreateAsync(int camNumber)
-       {
-           var mqttHost = Environment.GetEnvironmentVariable("MQTT_HOST") ?? "localhost";
-           var factory = new MqttFactory();
-           var client = factory.CreateMqttClient();
-           var mqttOptions = new MqttClientOptionsBuilder()
-               .WithTcpServer(mqttHost, 1883)
-               .WithClientId($"camerasim{camNumber}")
-               .Build();
-           await client.ConnectAsync(mqttOptions, CancellationToken.None);
-           return new MqttTrafficControlService(client);
+
+       @Override
+       public void sendVehicleEntry(final VehicleRegistered event) {
+           entryCamera.getInputChannel().send(new GenericMessage<>(event));
        }
-   
-       public async Task SendVehicleEntryAsync(VehicleRegistered vehicleRegistered)
-       {
-           var eventJson = JsonSerializer.Serialize(vehicleRegistered);
-           var message = new MqttApplicationMessageBuilder()
-               .WithTopic("trafficcontrol/entrycam")
-               .WithPayload(Encoding.UTF8.GetBytes(eventJson))
-               .WithAtMostOnceQoS()
-               .Build();
-           await _client.PublishAsync(message, CancellationToken.None);
-       }
-   
-       public async Task SendVehicleExitAsync(VehicleRegistered vehicleRegistered)
-       {
-           var eventJson = JsonSerializer.Serialize(vehicleRegistered);
-           var message = new MqttApplicationMessageBuilder()
-               .WithTopic("trafficcontrol/exitcam")
-               .WithPayload(Encoding.UTF8.GetBytes(eventJson))
-               .WithAtMostOnceQoS()
-               .Build();
-           await _client.PublishAsync(message, CancellationToken.None);
+
+       @Override
+       public void sendVehicleExit(final VehicleRegistered event) {
+           exitCamera.getInputChannel().send(new GenericMessage<>(event));
        }
    }
    ```
 
-1. Inspect the new code.
+1. Inspect the code. The `IntegrationFlow` instances are integration flows which you will configure using the Spring Integration Framework. Those flows provide an input channel that you use to publish messages, which are simple wrappers about around the existing events. 
 
-As you can see, it uses the `System.Net.Mqtt` library to connect to a MQTT broker and send messages to it.
+1. Also create a new file `MqttConfiguration.java` in the `Simulation/src/main/java/dapr/simulation/` folder. Add the following content into this file:
 
-Now you need to make sure this implementation is used instead of the HTTP one:
+  ```java
+   package dapr.simulation;
 
-1. Open the file `Simulation/Program.cs` in VS Code.
+   import org.springframework.context.annotation.Bean;
+   import org.springframework.context.annotation.Configuration;
+   import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
+   import org.springframework.integration.annotation.IntegrationComponentScan;
+   import org.springframework.integration.dsl.IntegrationFlow;
+   import org.springframework.integration.dsl.IntegrationFlows;
+   import org.springframework.integration.dsl.Transformers;
+   import org.springframework.integration.mqtt.outbound.MqttPahoMessageHandler;
+   import org.springframework.integration.support.json.Jackson2JsonObjectMapper;
+   import org.springframework.messaging.MessageHandler;
 
-1. Remove the line where an instance of the `HttpClient` instance is created:
+   import java.util.Map;
 
-   ```csharp
-   var httpClient = new HttpClient();
-   ```
+   @Configuration
+   @IntegrationComponentScan
+   public class MqttConfiguration {
+       @Bean
+       public IntegrationFlow entryCamera(final Jackson2ObjectMapperBuilder jacksonObjectMapperBuilder) {
+           var mapper = jacksonObjectMapperBuilder.build();
+           return IntegrationFlows.from("trafficcontrol/entrycam")
+                   .transform(Transformers.toJson(new Jackson2JsonObjectMapper(mapper)))
+                   .enrichHeaders(Map.of("mqtt_topic", "trafficcontrol/entrycam"))
+                   .handle(mqttOutbound())
+                   .get();
+       }
 
-1. Find the line which creates an instance of a `HttpTrafficControlService`:
+       @Bean
+       public IntegrationFlow exitCamera(final Jackson2ObjectMapperBuilder jacksonObjectMapperBuilder) {
+           var mapper = jacksonObjectMapperBuilder.build();
+           return IntegrationFlows.from("trafficcontrol/exitcam")
+                   .transform(Transformers.toJson(new Jackson2JsonObjectMapper(mapper)))
+                   .enrichHeaders(Map.of("mqtt_topic", "trafficcontrol/exitcam"))
+                   .handle(mqttOutbound())
+                   .get();
+       }
 
-   ```csharp
-   var trafficControlService = new HttpTrafficControlService(httpClient);
-   ```
+       @Bean
+       public MessageHandler mqttOutbound() {
+           var handler = new MqttPahoMessageHandler("tcp://localhost:1883", "simulation");
+           handler.setAsync(true);
+           return handler;
+       }
+   }
+  ```
 
-1. Replace this line with the creation of a `MqttTrafficControlService` instance:
+1. Inspect the code. This Spring configuration class declares the two `IntegrationFlow` instances. They are very much alike: both of them convert an incoming message to JSON, add a header that in turn will be translated to an MQTT topic and finally hand the messages over to the MQTT client.
 
-   ```csharp
-   var trafficControlService = await MqttTrafficControlService.CreateAsync(camNumber);
-   ```
+1. Open the file `Simulation/src/main/java/dapr/simulation/SimulationConfiguration.java` and replace the method `trafficControlService` with the following snippet:
+
+  ```java
+  @Bean
+  public TrafficControlService trafficControlService(final IntegrationFlow entryCamera, final IntegrationFlow exitCamera) {
+      return new MqttTrafficControlService(entryCamera, exitCamera);
+  }
+  ```
+
+  Also add an import for the `IntegrationFlow` class: `import org.springframework.integration.dsl.IntegrationFlow;`.
 
 1. Open the terminal window in VS Code and make sure the current folder is `Simulation`.
 
 1. Check all your code changes are correct by building the code. Execute the following command in the terminal window:
 
    ```console
-   dotnet build
+   mvn package
    ```
 
    If you see any warnings or errors, review the previous steps to make sure the code is correct.
@@ -275,14 +285,14 @@ You're going to start all the services now. You specify the custom components fo
 
 1. Make sure no services from previous tests are running (close the terminal windows).
 
-1. Make sure all the Docker containers introduced in the previous assignments are running (you can use the `Infrastructure/start-all.ps1` script to start them).
+1. Make sure all the Docker containers introduced in the previous assignments are running (you can use the `Infrastructure/start-all.sh` script to start them).
 
 1. Open the terminal window in VS Code and make sure the current folder is `VehicleRegistrationService`.
 
 1. Enter the following command to run the VehicleRegistrationService with a Dapr sidecar:
 
    ```console
-   dapr run --app-id vehicleregistrationservice --app-port 6002 --dapr-http-port 3602 --dapr-grpc-port 60002 --components-path ../dapr/components dotnet run
+   dapr run --app-id vehicleregistrationservice --app-port 6002 --dapr-http-port 3602 --dapr-grpc-port 60002 --components-path ../dapr/components mvn spring-boot:run
    ```
 
 1. Open a **new** terminal window in VS Code and change the current folder to `FineCollectionService`.
@@ -290,7 +300,7 @@ You're going to start all the services now. You specify the custom components fo
 1. Enter the following command to run the FineCollectionService with a Dapr sidecar:
 
    ```console
-   dapr run --app-id finecollectionservice --app-port 6001 --dapr-http-port 3601 --dapr-grpc-port 60001 --components-path ../dapr/components dotnet run
+   dapr run --app-id finecollectionservice --app-port 6001 --dapr-http-port 3601 --dapr-grpc-port 60001 --components-path ../dapr/components mvn spring-boot:run
    ```
 
 1. Open a **new** terminal window in VS Code and change the current folder to `TrafficControlService`.
@@ -298,7 +308,7 @@ You're going to start all the services now. You specify the custom components fo
 1. Enter the following command to run the TrafficControlService with a Dapr sidecar:
 
    ```console
-   dapr run --app-id trafficcontrolservice --app-port 6000 --dapr-http-port 3600 --dapr-grpc-port 60000 --components-path ../dapr/components dotnet run
+   dapr run --app-id trafficcontrolservice --app-port 6000 --dapr-http-port 3600 --dapr-grpc-port 60000 --components-path ../dapr/components mvn spring-boot:run
    ```
 
 1. Open a **new** terminal window in VS Code and change the current folder to `Simulation`.
@@ -306,7 +316,7 @@ You're going to start all the services now. You specify the custom components fo
 1. Start the simulation:
 
    ```console
-   dotnet run
+   mvn spring-boot:run
    ```
 
 You should see the same logs as before.

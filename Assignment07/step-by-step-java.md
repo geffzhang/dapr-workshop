@@ -13,7 +13,7 @@ This assignment targets number **6** in the end-state setup:
 
 ## Step 1: Add a secret store component
 
-First, you will add a secrets management component configuration to the solution:
+First, you will add a secrets management component configuration to the project:
 
 1. Add a new file in the `dapr/components` folder named `secrets.json`.
 
@@ -28,7 +28,7 @@ First, you will add a secrets management component configuration to the solution
            "password": "_password"
        },
        "finecalculator":{
-           "licensekey": "HX783-K2L7V-CRJ4A-5PN1G"
+           "licensekey": "HX783-5PN1G-CRJ4A-K2L7V"
        }
    }
    ```
@@ -109,23 +109,38 @@ Now, the output binding will use the `smtp.username` and `smtp.password` secrets
 
 ## Step 3: Get the license key for the FineCalculator component
 
-The `CollectionController` of the FineCollectionService uses an `IFineCalculator` implementation to calculate the fine for a certain speeding violation (check out the code). The calculator used is the `FineCollectionService/DomainServices/HardCodedFineCalculator.cs`. To demonstrate retrieving secrets, this calculator component expects a license key (this is just hard-coded, remember this is a sample application!). The `CollectionController` retrieves the key from the `appsettings.json` file using the standard ASP.NET Core configuration mechanism.
+The `ViolationProcessor` of the FineCollectionService uses a `FineCalculator` implementation to calculate the fine for a certain speeding violation (check out the code). The calculator used is implemented in the `FineCollectionService/src/main/java/dapr/fines/fines/DefaultFineCalculator.java` file. It uses a (fake) third-party component, the "FineFines" library. This library expects a license key for each call; it reads the expected key from a classpath resource. Remember it's just a sample application... The actual value that the application will provide with each call is injected by Spring. The `FineCollectionConfiguration` Spring configuration class retrieves the key from the Spring configuration using the standard Spring configuration mechanism.
 
-You will now change the controller so it retrieves the license key from the Dapr secrets management building block:
+You will now change the Spring configuration so it retrieves the license key from the Dapr secrets management building block:
 
-1. Open the file `FineCollectionService/Controllers/CollectionController.cs` in VS Code.
+1. Open the file `FineCollectionService/src/main/java/dapr/fines/FineCollectionConfiguration.java` in VS Code.
 
-1. Add a parameter named `daprClient` of type `DaprClient` to the constructor.
+1. Remove the line with the `fineCalculatorLicenseKey` instance variable as well as the `@Value` annotation above it. Replace them with the following code:
 
-1. Replace the line where the `_fineCalculatorLicenseKey` is set with a value retrieved from the settings with the following code:
-
-   ```csharp
-   var secrets = daprClient.GetSecretAsync(
-       "trafficcontrol-secrets", "finecalculator.licensekey").Result;
-   _fineCalculatorLicenseKey = secrets["finecalculator.licensekey"];
+   ```java
+   @Bean
+   public String fineCalculatorLicenseKey(final DaprClient daprClient) {
+       return daprClient.getSecret("trafficcontrol-secrets", "finecalculator.licensekey")
+               .block()
+               .get("finecalculator.licensekey");
+   }
    ```
 
-> Because the `_fineCalculatorLicenseKey` field is static, this code will execute only once. This is not a best practice, but fine for this sample app.
+   Add the necessary imports as well:
+
+   ```java
+   import io.dapr.client.DaprClient;
+   import io.dapr.client.DaprClientBuilder;
+   ```
+
+1. Change the `fineCalculator` method so it accepts one parameter: `String fineCalculatorLicenseKey`. This allows Spring to inject the bean defined by the previous method as a parameter for the `fineCalculator` method:
+
+  ```java
+  @Bean
+  public FineCalculator fineCalculator(final String fineCalculatorLicenseKey) {
+      return new DefaultFineCalculator(fineCalculatorLicenseKey);
+  }
+  ```
 
 Now you're ready to test the application.
 
@@ -135,14 +150,14 @@ You're going to start all the services now. You specify the custom components fo
 
 1. Make sure no services from previous tests are running (close the terminal windows).
 
-1. Make sure all the Docker containers introduced in the previous assignments are running (you can use the `Infrastructure/start-all.ps1` script to start them).
+1. Make sure all the Docker containers introduced in the previous assignments are running (you can use the `Infrastructure/start-all.sh` script to start them).
 
 1. Open the terminal window in VS Code and make sure the current folder is `VehicleRegistrationService`.
 
 1. Enter the following command to run the VehicleRegistrationService with a Dapr sidecar:
 
    ```console
-   dapr run --app-id vehicleregistrationservice --app-port 6002 --dapr-http-port 3602 --dapr-grpc-port 60002 --components-path ../dapr/components dotnet run
+   dapr run --app-id vehicleregistrationservice --app-port 6002 --dapr-http-port 3602 --dapr-grpc-port 60002 --components-path ../dapr/components mvn spring-boot:run
    ```
 
 1. Open a **new** terminal window in VS Code and change the current folder to `FineCollectionService`.
@@ -150,7 +165,7 @@ You're going to start all the services now. You specify the custom components fo
 1. Enter the following command to run the FineCollectionService with a Dapr sidecar:
 
    ```console
-   dapr run --app-id finecollectionservice --app-port 6001 --dapr-http-port 3601 --dapr-grpc-port 60001 --components-path ../dapr/components dotnet run
+   dapr run --app-id finecollectionservice --app-port 6001 --dapr-http-port 3601 --dapr-grpc-port 60001 --components-path ../dapr/components mvn spring-boot:run
    ```
 
 1. Open a **new** terminal window in VS Code and change the current folder to `TrafficControlService`.
@@ -158,7 +173,7 @@ You're going to start all the services now. You specify the custom components fo
 1. Enter the following command to run the TrafficControlService with a Dapr sidecar:
 
    ```console
-   dapr run --app-id trafficcontrolservice --app-port 6000 --dapr-http-port 3600 --dapr-grpc-port 60000 --components-path ../dapr/components dotnet run
+   dapr run --app-id trafficcontrolservice --app-port 6000 --dapr-http-port 3600 --dapr-grpc-port 60000 --components-path ../dapr/components mvn spring-boot:run
    ```
 
 1. Open a **new** terminal window in VS Code and change the current folder to `Simulation`.
@@ -166,7 +181,7 @@ You're going to start all the services now. You specify the custom components fo
 1. Start the simulation:
 
    ```console
-   dotnet run
+   mvn spring-boot:run
    ```
 
 You should see the same logs as before.
@@ -174,7 +189,7 @@ You should see the same logs as before.
 If you examine the Dapr logging, you should see a line in there similar to this:
 
 ```console
-time="2021-02-28T18:16:50.2936204+01:00" level=info msg="component loaded. name: trafficcontrol-secrets, type: secretstores.local.file/v1" app_id=finecollectionservice instance=EDWINW01 scope=dapr.runtime type=log ver=1.0.0
+INFO[0000] component loaded. name: trafficcontrol-secrets, type: secretstores.local.file/v1  app_id=finecollectionservice instance=edsger scope=dapr.runtime type=log ver=1.2.2
 ```
 
 ## Step 5: Validate secret store operation
@@ -188,9 +203,13 @@ To validate that the secrets management building block is actually used:
 Now you should see some errors in the logging because the FineCollectionService service is no longer passing the correct license key in the call to the `FineCalculator` component:
 
    ```console
-== APP ==       System.InvalidOperationException: Invalid or no license key specified.
-== APP ==          at FineCollectionService.DomainServices.HardCodedFineCalculator.CalculateFine(String licenseKey, Int32 violationInKmh) in D:\dev\Dapr\dapr-workshop\src\FineCollectionService\DomainServices\HardCodedFineCalculator.cs:line 13
-== APP ==          at FineCollectionService.Controllers.CollectionController.CollectFine(SpeedingViolation speedingViolation, DaprClient daprClient) in D:\dev\Dapr\dapr-workshop\src\FineCollectionService\Controllers\CollectionController.cs:line 45
+   == APP == 2021-08-18 21:13:00.431 ERROR 152635 --- [nio-6001-exec-5] o.a.c.c.C.[.[.[/].[dispatcherServlet]    : Servlet.service() for servlet [dispatcherServlet] in context with path [] threw exception [Request processing failed; nested exception is java.lang.IllegalArgumentException: No valid license key supplied] with root cause
+   == APP == 
+   == APP == java.lang.IllegalArgumentException: No valid license key supplied
+   == APP ==       at finefines.FineFines.calculateFine(FineFines.java:27) ~[classes/:na]
+   == APP ==       at dapr.fines.fines.DefaultFineCalculator.calculateFine(DefaultFineCalculator.java:19) ~[classes/:na]
+   == APP ==       at dapr.fines.violation.ViolationProcessor.processSpeedingViolation(ViolationProcessor.java:26) ~[classes/:na]
+   == APP ==       at dapr.fines.violation.ViolationController.registerViolation(ViolationController.java:18) ~[classes/:na]
    ```
 
 Don't forget to change the license key in the secrets file back to the correct one!
@@ -199,4 +218,4 @@ Don't forget to change the license key in the secrets file back to the correct o
 
 You have reached the end of the hands-on assignments. If you haven't been able to do all the assignments, go to this [this repository](https://github.com/edwinvw/dapr-traffic-control) for the end result.
 
-Thanks for participating in these hands-on assignments! Hopefully you've learned about Dapr and how to use it. Obviously, these assignment barely scratch te surface of what is possible with Dapr. We have not touched upon subjects like: hardening production environments, actors, integration with Azure Functions, Azure API Management and Azure Logic Apps just to name a few. So if you're interested in learning more, I suggest you read the [Dapr documentation](https://docs.dapr.io).
+Thanks for participating in these hands-on assignments! Hopefully you've learned about Dapr and how to use it. Obviously, these assignment barely scratch te surface of what is possible with Dapr. We have not touched upon subjects like: hardening production environments, actors, integration with cloud-specific services, just to name a few. So if you're interested in learning more, I suggest you read the [Dapr documentation](https://docs.dapr.io).

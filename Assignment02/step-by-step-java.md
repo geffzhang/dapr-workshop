@@ -13,7 +13,7 @@ This assignment targets number **1** in the end-state setup:
 
 ## Step 1: Start the VehicleRegistrationService with Dapr
 
-In assignment 1, you started all the services using `dotnet run`. When you want to run a service with a Dapr sidecar that handles its communication, you need to start it using the Dapr CLI. There are a couple of things you need to specify when starting the service:
+In assignment 1, you started all the services using `mvn spring-boot:run`. When you want to run a service with a Dapr sidecar that handles its communication, you need to start it using the Dapr CLI. There are a couple of things you need to specify when starting the service:
 
 - The service needs a unique id which Dapr can use to find it. This is called the *app-id* (or application Id). You specify this with the `--app-id` flag on the command-line.
 
@@ -27,7 +27,7 @@ In assignment 1, you started all the services using `dotnet run`. When you want 
   | FineCollectionService      | 6001             | 3601                   | 60001                  |
   | VehicleRegistrationService | 6002             | 3602                   | 60002                  |
 
-- Finally you need to tell Dapr how to start the service. The services are .NET services which can be started with the command `dotnet run`.
+- Finally you need to tell Dapr how to start the service. The services are Java/Spring Boot services which can be started with the command `mvn spring-boot:run`.
 
 You will use the `run` command of the Dapr CLI and specify all the options above on the command-line:
 
@@ -40,7 +40,7 @@ You will use the `run` command of the Dapr CLI and specify all the options above
 4. Enter the following command to run the VehicleRegistrationService with a Dapr sidecar:
 
    ```console
-   dapr run --app-id vehicleregistrationservice --app-port 6002 --dapr-http-port 3602 --dapr-grpc-port 60002 dotnet run
+   dapr run --app-id vehicleregistrationservice --app-port 6002 --dapr-http-port 3602 --dapr-grpc-port 60002 mvn spring-boot:run
    ```
 
 5. Check the logs for any errors. As you can see, both Dapr as well as application logging is shown as output.
@@ -53,20 +53,20 @@ In this step, you're going to change the code of the FineCollectionService so it
 
 First you're going to change the code so it calls the Dapr sidecar:
 
-1. Open the file `FineCollectionService/Controllers/CollectionController.cs` in VS Code.
+1. Open the file `FineCollectionService/src/main/java/dapr/fines/vehicle/DefaultVehicleRegistrationClient.java` in VS Code.
 
-1. Inspect the `CollectFine` method. It contains a call to the VehicleRegistrationService to retrieve the vehicle info:
+1. Inspect the `getVehicleInfo` method. It contains a call to the VehicleRegistrationService to retrieve the vehicle info:
 
-   ```csharp
-   // get owner info
-   var vehicleInfo = await _vehicleRegistrationService.GetVehicleInfo(speedingViolation.VehicleId);
+   ```java
+   var params = Map.of("licenseNumber", licenseNumber);
+   return restTemplate.getForObject(vehicleInformationAddress, VehicleInfo.class, params);
    ```
 
-   The `_vehicleRegistrationService` is an instance of a proxy that uses the .NET `HttpClient` to call the VehicleRegistrationService. You are going to change that proxy so it uses Dapr service invocation.
+   The `restTemplate` is a utility provided by Spring to invoke the VehicleRegistrationService. Its base address for consuming that REST web service is injected through the constructor of that class. That constructor is invoked from a Spring configuration class, which in turn reads the Spring configuration file using `@Value`.
 
-1. Open the file `FineCollectionService/Proxies/VehicleRegistrationService.cs` in VS Code.
+1. Open the file `FineCollectionService/src/main/resources/application.yml` in VS Code.
 
-1. Inspect the `GetVehicleInfo` method. You can see that in the HTTP call, the URL of the VehicleRegistrationService (running on port 6002) is used.
+   Here we see the actual value being configured. Inspect the `vehicle-information.address` setting. You can see that in the HTTP call, the URL of the VehicleRegistrationService (running on port 6002) is used.
 
 1. The API for calling the Dapr service invocation building block on a Dapr sidecar is:
 
@@ -82,14 +82,10 @@ First you're going to change the code so it calls the Dapr sidecar:
 
    As you can see in this URL, the FineCollectionService's Dapr sidecar will run on HTTP port `3601`.
 
-1. Replace the URL in the code with the new Dapr service invocation URL. The code should now look like this:
+1. Replace the URL in the configuration file with the new Dapr service invocation URL. The file should now look like this:
 
-   ```csharp
-   public async Task<VehicleInfo> GetVehicleInfo(string licenseNumber)
-   {
-       return await _httpClient.GetFromJsonAsync<VehicleInfo>(
-           $"http://localhost:3601/v1.0/invoke/vehicleregistrationservice/method/vehicleinfo/{licenseNumber}");
-   }
+   ```yml
+   vehicle-information.address: http://localhost:3601/v1.0/invoke/vehicleregistrationservice/method/vehicleinfo/{licenseNumber}
    ```
 
    > It's important to really grasp the sidecar pattern used by Dapr. In this case, the FineCollectionService calls the VehicleRegistrationService by **calling its own Dapr sidecar**! The FineCollectionService doesn't need to know anymore where the VehicleRegistrationService lives because its Dapr sidecar will take care of that. It will find it based on the `app-id` specified in the URL and call the target service's sidecar.
@@ -99,7 +95,7 @@ First you're going to change the code so it calls the Dapr sidecar:
 1. Check all your code-changes are correct by building the code:
 
    ```console
-   dotnet build
+   mvn package
    ```
 
    If you see any warnings or errors, review the previous steps to make sure the code is correct.
@@ -107,7 +103,7 @@ First you're going to change the code so it calls the Dapr sidecar:
 1. Enter the following command to run the FineCollectionService with a Dapr sidecar:
 
    ```console
-   dapr run --app-id finecollectionservice --app-port 6001 --dapr-http-port 3601 --dapr-grpc-port 60001 dotnet run
+   dapr run --app-id finecollectionservice --app-port 6001 --dapr-http-port 3601 --dapr-grpc-port 60001 mvn spring-boot:run
    ```
 
 1. Check the logs for any errors. As you can see, both Dapr as well as application logging is shown as output.
@@ -119,7 +115,7 @@ Now you're going to test the application:
 1. Enter the following command to run the TrafficControlService:
 
 1. ```console
-   dotnet run
+   mvn spring-boot:run
    ```
 
 > The TrafficControlService does not need to run with a Dapr sidecar in this assignment. This is because it will still call the FineCollectionService over HTTP as before.
@@ -131,14 +127,14 @@ The services are up & running. Now you're going to test this using the simulatio
 1. Start the simulation:
 
    ```console
-   dotnet run
+   mvn spring-boot:run
    ```
 
 You should see similar logging as before when you ran the application. So all the functionality works the same, but now you use Dapr service invocation to communicate between the FineCollectionService and the VehicleRegistrationService.
 
-## Step 3: Use Dapr service invocation with the Dapr SDK for .NET
+## Step 3: Use Dapr service invocation with the Dapr SDK for Java
 
-In this step, you're going to change the code of the FineCollectionService so it uses the Dapr SDK for .NET to call the VehicleRegistrationService. The SDK provides a more integrated way to invoke the Dapr sidecar API.
+In this step, you're going to change the code of the FineCollectionService so it uses the Dapr SDK for Java to call the VehicleRegistrationService. The SDK provides a more integrated way to invoke the Dapr sidecar API.
 
 First stop the simulation:
 
@@ -150,56 +146,101 @@ First stop the simulation:
 
 1. Stop the service by pressing `Ctrl-C`. Keep this terminal window open and focused.
 
-1. Add a reference to the Dapr ASP.NET Core integration library:
+1. Add a dependency to the Dapr SDK for Java to the `pom.xml` in the FineCollectionService directory:
 
-   ```console
-   dotnet add package Dapr.AspNetCore
+   ```xml
+   <dependency>
+       <groupId>io.dapr</groupId>
+       <artifactId>dapr-sdk</artifactId>
+   </dependency>
    ```
 
-   > The `Dapr.AspNetCore` package contains the `DaprClient` class used to directly invoke the Dapr API as well as additional integrations with ASP.NET Core. Because the services are all ASP.NET Core web APIs, we'll use this package throughout the workshop.
+   The version of the dependency is managed using Mavens "dependency management" - you can inspect the `pom.xml` file inside the source code folder to see the exact version.
 
-Now you'll change the code to use the Dapr SDK `HttpClient` integration to call the VehicleRegistrationService. The `HttpClient` integration allows you to keep using the regular `HttpClient` to make service calls, while the SDK ensures that calls are routed through the Dapr sidecar.
+   > The Dapr SDK for Java contains the `DaprClient` class that we will use to directly invoke the Dapr API. There is also an additional library that integrates with Spring Boot, but we don't need that yet. It is only necessary for building application that _offer_ services with Dapr.
 
-1. Open the file `FineCollectionService/GlobalUsings.cs` in VS Code.
+Now you'll change the code to use the Dapr-provided `DaprClient` to call the VehicleRegistrationService. In step 2 we used the existing code based on Spring's `RestTemplate`, keeping our code unaware of Dapr. The Dapr SDK for Java ensures that calls are routed through the Dapr sidecar.
 
-1. Add a global using statement in this file to make sure you can use the Dapr client:
+1. Create a new file, `FineCollectionService/src/main/java/dapr/fines/vehicle/DaprVehicleRegistrationClient.java` and open it in VS Code.
 
-   ```csharp
-   global using Dapr.Client;
-   ```
+1. Declare a class `DaprVehicleRegistrationClient` that implements the `VehicleRegistrationClient` interface. Make sure to include a package declaration: `package dapr.fines.vehicle;`. To fulfil the contract of the `VehicleRegistrationClient` interface, add the following method:
 
-1. Open the file `FineCollectionService/Program.cs` in VS Code.
-
-1. This file contains these two lines of code which register the .NET `HttpClient` and the `VehicleRegistrationService`  proxy (which uses the `HttpClient`) with dependency injection:
-
-   ```csharp
-   builder.Services.AddHttpClient();
-   builder.Services.AddSingleton<VehicleRegistrationService>();
-   ```
-
-1. Replace these two lines with with the following lines:
-
-   ```csharp
-   builder.Services.AddSingleton<VehicleRegistrationService>(_ => 
-       new VehicleRegistrationService(DaprClient.CreateInvokeHttpClient(
-           "vehicleregistrationservice", "http://localhost:3601")));
-   ```
-
-   As you can see in this snippet, you use the `DaprClient` to create an `HttpClient` instance for doing service invocation. You specify the `app-id` of the service you want to communicate with. You also specify the address of the Dapr sidecar, because the FineCollectionService's sidecar does not use the default Dapr HTTP port (3500). The resulting `HttpClient` instance is explicitly passed into the constructor of the `VehicleRegistrationService` proxy.
-
-   > This is an example of the deep integration of Dapr with ASP.NET Core when you use the `Dapr.AspNetCore` library. You can still use the `HttpClient` (and its rich feature-set) in your code, but under the hood the Dapr service invocation building block is used.
-
-1. Open the file `FineCollectionService/Proxies/VehicleRegistrationService.cs` in VS Code.
-
-1. Because the `HttpClient` passed into this class has already been created for a certain `app-id`, you can omit the host information from the request URL. Change the URL that is used in the `GetVehicleInfo` to `/vehicleinfo/{licenseNumber}`. The method should now look like this:
-
-   ```csharp
-   public async Task<VehicleInfo> GetVehicleInfo(string licenseNumber)
-   {
-       return await _httpClient.GetFromJsonAsync<VehicleInfo>(
-           $"/vehicleinfo/{licenseNumber}");
+   ```java
+   @Override
+   public VehicleInfo getVehicleInfo(String licenseNumber) {
+       return null;
    }
    ```
+
+1. Open the file `FineCollectionService/src/main/java/dapr/fines/FineCollectionConfiguration.java` in VS Code.
+   Add a new method to declare a Spring Bean of type `DaprClient`:
+   
+   ```java
+   @Bean
+   public DaprClient daprClient() {
+       return new DaprClientBuilder().build();
+   }
+   ```
+
+   In the same class, the `vehicleRegistrationClient` method declares a Spring Bean that provides an implementation of the `VehicleRegistrationClient` interface. To do so, it needs a `DaprClient` bean. Replace this method with the following:
+
+   ```java
+   @Bean
+   public VehicleRegistrationClient vehicleRegistrationClient(final DaprClient daprClient) {
+       return new DaprVehicleRegistrationClient(daprClient);
+   }
+   ```
+
+   Finally, update the import statements in the class:
+
+   ```java
+   import dapr.fines.vehicle.DaprVehicleRegistrationClient;
+   import io.dapr.client.DaprClient;
+   import io.dapr.client.DaprClientBuilder;
+   ```
+
+1. Go back to the `DaprVehicleRegistrationClient` implementation class and add a few import statements in this file to make sure you can use the Dapr client and the Sleuth integration:
+
+   ```java
+   import io.dapr.client.DaprClient;
+   import io.dapr.client.domain.HttpExtension;
+   import spring.SleuthDaprTracingInjector;
+
+   import java.time.Duration;
+   ```
+
+   Now add an instance variable of type `DaprClient`, and add a constructor to inject it:
+
+   ```java
+   public class DaprVehicleRegistrationClient implements VehicleRegistrationClient {
+       private final DaprClient daprClient;
+
+       public DaprVehicleRegistrationClient(final DaprClient daprClient) {
+          this.daprClient = daprClient;
+       }
+   ```
+
+   Finally, update the implementation of the `getVehicleInfo()` method in this class to use the `DaprClient`:
+
+   ```java
+   var result = daprClient.invokeMethod(
+            "vehicleregistrationservice",
+            "vehicleinfo/" + licenseNumber,
+            null,
+            HttpExtension.GET,
+            VehicleInfo.class
+   );
+
+   return result
+            .contextWrite(new SleuthDaprTracingInjector())
+            .block(Duration.ofMillis(1000));
+   ```
+
+   As you can see in this snippet, this code does not require our application to know the _address_ of the Vehicle Registration Service, only it's _name_. With each call to the `DaprClient`, you specify the `app-id` of the service you want to communicate with.
+
+   > Also note that the `invokeMethod` method of the `DaprClient` returns a `Mono`. Because we don't want to get distracted by all the possibilities that reactive progamming brings, we immediately invoke `block` to await the result. In a real-world scenario, it would make more sense to propagate that Mono through our application to make it more reactive.
+
+   > At this point, you can remove the `vehicle-information.address` entry from the `application.yml` file. The Dapr SDK for Java does not need it.
 
 Now the FineCollectionService is changed to use the Dapr SDK for service invocation. Let's test this.
 
@@ -210,7 +251,7 @@ Now the FineCollectionService is changed to use the Dapr SDK for service invocat
 1. Enter the following command to start the changed FineCollectionService again:
 
    ```console
-   dapr run --app-id finecollectionservice --app-port 6001 --dapr-http-port 3601 --dapr-grpc-port 60001 dotnet run
+   dapr run --app-id finecollectionservice --app-port 6001 --dapr-http-port 3601 --dapr-grpc-port 60001 mvn spring-boot:run
    ```
 
 The services are up & running. Now you're going to test this using the simulation.
@@ -220,7 +261,7 @@ The services are up & running. Now you're going to test this using the simulatio
 1. Start the simulation:
 
    ```console
-   dotnet run
+   mvn spring-boot:run
    ```
 
 You should see similar logging as before when you ran the application.
